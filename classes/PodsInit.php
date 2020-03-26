@@ -80,6 +80,15 @@ class PodsInit {
 	public static $upgrade_needed = false;
 
 	/**
+	 * Freemius object.
+	 *
+	 * @since 1.0.0
+	 *
+	 * @var \Freemius
+	 */
+	protected $freemius;
+
+	/**
 	 * Singleton handling for a basic pods_init() request
 	 *
 	 * @return \PodsInit
@@ -128,6 +137,7 @@ class PodsInit {
 
 		add_action( 'plugins_loaded', array( $this, 'plugins_loaded' ) );
 		add_action( 'plugins_loaded', array( $this, 'activate_install' ), 9 );
+		add_action( 'after_setup_theme', array( $this, 'after_setup_theme' ) );
 
 		add_action( 'wp_loaded', array( $this, 'flush_rewrite_rules' ) );
 
@@ -150,6 +160,195 @@ class PodsInit {
 
 		load_plugin_textdomain( 'pods' );
 
+		$this->freemius();
+
+	}
+
+	/**
+	 * Handle Freemius SDK registration.
+	 *
+	 * @since 1.0.0
+	 *
+	 * @return \Freemius
+	 */
+	public function freemius() {
+		if ( $this->freemius ) {
+			return $this->freemius;
+		}
+
+		require_once dirname( __DIR__ ) . '/vendor/freemius/wordpress-sdk/start.php';
+
+		try {
+			$this->freemius = fs_dynamic_init( array(
+				'id'             => '5347',
+				'slug'           => 'pods',
+				'type'           => 'plugin',
+				'public_key'     => 'pk_737105490825babae220297e18920',
+				'is_premium'     => false,
+				'has_addons'     => true,
+				'has_paid_plans' => false,
+				'menu'           => array(
+					'slug'        => 'pods-settings',
+					'contact'     => false,
+					'support'     => false,
+					'affiliation' => false,
+					'account'     => true,
+					'pricing'     => false,
+					'addons'      => true,
+					'parent'      => array(
+						'slug' => 'pods',
+					),
+				),
+			) );
+
+			$this->override_freemius_strings();
+
+			add_filter( 'fs_plugins_api', array( $this, 'filter_freemius_plugins_api_data' ), 15 );
+
+			$this->freemius->add_filter( 'templates/add-ons.php', array( $this, 'filter_freemius_addons_html' ) );
+			$this->freemius->add_filter( 'download_latest_url', array( $this, 'get_freemius_action_link' ) );
+
+			/**
+			 * Allow hooking into the Freemius registration after Pods has registered it's own Freemius.
+			 */
+			do_action( 'pods_freemius_init' );
+		} catch ( \Exception $exception ) {
+			return null;
+		}
+
+		return $this->freemius;
+	}
+
+	/**
+	 * Override Freemius strings.
+	 */
+	public function override_freemius_strings() {
+		$override_text = array(
+			'free'                     => 'Free (WordPress.org)',
+			'install-free-version-now' => 'Install Now',
+			'download-latest'          => 'Donate',
+		);
+
+		$freemius_addons = $this->get_freemius_addons();
+
+		fs_override_i18n( $override_text, 'pods' );
+
+		foreach ( $freemius_addons as $addon_slug => $addon ) {
+			fs_override_i18n( $override_text, $addon_slug );
+		}
+	}
+
+	/**
+	 * Filter the Freemius plugins API data.
+	 *
+	 * @since TBD
+	 *
+	 * @param object $data Freemius plugins API data.
+	 *
+	 * @return object Freemius plugins API data.
+	 */
+	public function filter_freemius_plugins_api_data( $data ) {
+		if ( empty( $data->sections['features'] ) ) {
+			return $data;
+		}
+
+		$data->sections['features'] = preg_replace( '/(<span\s+class="fs-price"><\/span>)/Uim', '<span class="fs-price">Friends-only</span>', $data->sections['features'] );
+
+		return $data;
+	}
+
+	/**
+	 * Filter the Freemius add-ons HTML.
+	 *
+	 * @since TBD
+	 *
+	 * @param string $html Freemius add-ons HTML.
+	 *
+	 * @return string Freemius add-ons HTML.
+	 */
+	public function filter_freemius_addons_html( $html ) {
+		$freemius_friends_addons = $this->get_freemius_friends_addons();
+
+		// Replace blank prices with Friends-only.
+		$html = preg_replace( '/<span\s+class="fs-price"><\/span>/Uim', '<span class="fs-price">Friends-only</span>', $html );
+
+		// Remove dropdown arrow for action links.
+		$html = preg_replace( '/<div\s+class="button button-primary fs-dropdown-arrow-button">/Uim', '<div class="hidden">', $html );
+
+		// Use landing page for Become a Friend link.
+		$replace = '$1<a target="_blank" href="' . esc_url( $this->get_freemius_action_link() ) . '"$2class="$3">';
+
+		// Replace all Friends-only add-on links.
+		foreach ( $freemius_friends_addons as $addon_slug => $addon ) {
+			$pattern = '/(<li class="fs-card fs-addon" data-slug="' . preg_quote( esc_attr( $addon_slug ), '/' ) . '">\s+)<a href="[^"]+"([^>]+)class="thickbox([^>]+)">/Uim';
+
+			$html = preg_replace( $pattern, $replace, $html );
+		}
+
+		return $html;
+	}
+
+	/**
+	 * Get action link URL.
+	 *
+	 * @since TBD
+	 *
+	 * @param string $url Action link URL.
+	 *
+	 * @return string Action link URL.
+	 */
+	public function get_freemius_action_link( $url = null ) {
+		return 'https://friends.pods.io/add-ons/';
+	}
+
+	/**
+	 * Get list of add-ons for Freemius.
+	 *
+	 * @since TBD
+	 *
+	 * @return array List of add-ons for Freemius.
+	 */
+	public function get_freemius_addons() {
+		return array(
+			'pods-beaver-builder-themer-add-on' => 'Pods Beaver Themer Add-On',
+			'pods-gravity-forms'                => 'Pods Gravity Forms Add-On',
+			'pods-alternative-cache'            => 'Pods Alternative Cache',
+			'pods-simple-relationships'         => 'Pods Simple Relationships',
+			'pods-seo'                          => 'Pods SEO',
+			'pods-ajax-views'                   => 'Pods AJAX Views',
+		);
+	}
+
+	/**
+	 * Get list of Friends-only add-ons for Freemius.
+	 *
+	 * @since TBD
+	 *
+	 * @return array List of Friends-only add-ons for Freemius.
+	 */
+	public function get_freemius_friends_addons() {
+		return array(
+			'pods-simple-relationships' => 'Pods Simple Relationships',
+		);
+	}
+
+	/**
+	 * Add compatibility for other plugins.
+	 *
+	 * @since 2.7.17
+	 */
+	public function after_setup_theme() {
+
+		if ( ! defined( 'PODS_COMPATIBILITY' ) ) {
+			define( 'PODS_COMPATIBILITY', true );
+		}
+
+		if ( ! PODS_COMPATIBILITY ) {
+			return;
+		}
+
+		require_once PODS_DIR . 'includes/compatibility/acf.php';
+
 	}
 
 	/**
@@ -161,7 +360,7 @@ class PodsInit {
 			return;
 		}
 
-		if ( ! defined( 'PODS_LIGHT' ) || ! PODS_LIGHT ) {
+		if ( ! pods_light() ) {
 			self::$components = pods_components();
 		}
 
@@ -317,10 +516,16 @@ class PodsInit {
 		// Marionette dependencies for MV fields
 		wp_register_script( 'backbone.radio', PODS_URL . 'ui/js/marionette/backbone.radio.min.js', array( 'backbone' ), '2.0.0', true );
 		wp_register_script(
-			'marionette', PODS_URL . 'ui/js/marionette/backbone.marionette.min.js', array(
+			'marionette',
+			PODS_URL . 'ui/js/marionette/backbone.marionette.min.js',
+			array(
 				'backbone',
 				'backbone.radio',
 			), '3.3.1', true
+		);
+		wp_add_inline_script(
+			'marionette',
+			'PodsMn = Backbone.Marionette.noConflict();'
 		);
 
 		// MV stuff
@@ -338,8 +543,8 @@ class PodsInit {
 
 		// Check if Pod is a Modal Window
 		if ( pods_is_modal_window() ) {
-			add_filter( 'body_class', array( $this, 'add_classes_to_body_class' ) );
-			add_filter( 'admin_body_class', array( $this, 'add_classes_to_body_class' ) );
+			add_filter( 'body_class', array( $this, 'add_classes_to_modal_body' ) );
+			add_filter( 'admin_body_class', array( $this, 'add_classes_to_modal_body' ) );
 		}
 
 		// Deal with specifics on admin pages
@@ -400,13 +605,17 @@ class PodsInit {
 	}
 
 	/**
-	 * @param string $classes Body classes.
+	 * @param string|array $classes Body classes.
 	 *
-	 * @return string
+	 * @return string|array
 	 */
-	public function add_classes_to_body_class( $classes ) {
+	public function add_classes_to_modal_body( $classes ) {
 
-		$classes .= 'pods-modal-window';
+		if ( is_array( $classes ) ) {
+			$classes[] = 'pods-modal-window';
+		} else {
+			$classes .= ' pods-modal-window';
+		}
 
 		return $classes;
 	}
@@ -1333,7 +1542,10 @@ class PodsInit {
 		register_activation_hook( PODS_DIR . 'init.php', array( $this, 'activate' ) );
 		register_deactivation_hook( PODS_DIR . 'init.php', array( $this, 'deactivate' ) );
 
-		add_action( 'wpmu_new_blog', array( $this, 'new_blog' ), 10, 6 );
+		// WP 5.1+.
+		add_action( 'wp_insert_site', array( $this, 'new_blog' ) );
+		// WP < 5.1. (Gets automaticaly removed if `wp_insert_site` is called.
+		add_action( 'wpmu_new_blog', array( $this, 'new_blog' ) );
 
 		if ( empty( self::$version ) || version_compare( self::$version, PODS_VERSION, '<' ) || version_compare( self::$version, PODS_DB_VERSION, '<=' ) || self::$upgrade_needed ) {
 			$this->setup();
@@ -1370,6 +1582,8 @@ class PodsInit {
 	 *
 	 */
 	public function deactivate() {
+
+		delete_option( 'pods_callouts' );
 
 		pods_api()->cache_flush_pods();
 
@@ -1411,14 +1625,18 @@ class PodsInit {
 	}
 
 	/**
-	 * @param $_blog_id
-	 * @param $user_id
-	 * @param $domain
-	 * @param $path
-	 * @param $site_id
-	 * @param $meta
+	 * @todo  Remove `wpmu_new_blog` once support for WP < 5.1 gets dropped.
+	 * @param WP_Site|int $_blog_id
 	 */
-	public function new_blog( $_blog_id, $user_id, $domain, $path, $site_id, $meta ) {
+	public function new_blog( $_blog_id ) {
+		// WP 5.1+.
+		if ( doing_action( 'wp_insert_site' ) ) {
+			remove_action( 'wpmu_new_blog', array( $this, 'new_blog' ) );
+		}
+
+		if ( class_exists( 'WP_Site' ) && $_blog_id instanceof WP_Site ) {
+			$_blog_id = $_blog_id->id;
+		}
 
 		if ( is_multisite() && is_plugin_active_for_network( basename( PODS_DIR ) . '/init.php' ) ) {
 			$this->setup( $_blog_id );
@@ -1648,6 +1866,9 @@ class PodsInit {
 		// Show admin bar links
 		add_action( 'admin_bar_menu', array( $this, 'admin_bar_links' ), 81 );
 
+		// Compatibility with WP 5.4 privacy export.
+		add_filter( 'wp_privacy_additional_user_profile_data', array( $this, 'filter_wp_privacy_additional_user_profile_data' ), 10, 3 );
+
 		// Compatibility for Query Monitor conditionals
 		add_filter( 'query_monitor_conditionals', array( $this, 'filter_query_monitor_conditionals' ) );
 
@@ -1847,6 +2068,42 @@ class PodsInit {
 	}
 
 	/**
+	 * Add Pod fields to user export.
+	 * Requires WordPress 5.4+
+	 *
+	 * @since 2.7.17
+	 *
+	 * @param array   $additional_user_profile_data {
+	 *     An array of name-value pairs of additional user data items.  Default: the empty array.
+	 *
+	 *     @type string $name  The user-facing name of an item name-value pair, e.g. 'IP Address'.
+	 *     @type string $value The user-facing value of an item data pair, e.g. '50.60.70.0'.
+	 * }
+	 * @param WP_User $user           The user whose data is being exported.
+	 * @param array   $reserved_names An array of reserved names.  Any item in
+	 *                                 `$additional_user_data` that uses one of these
+	 *                                 for it's `name` will not be included in the export.
+	 *
+	 * @return array
+	 */
+	public function filter_wp_privacy_additional_user_profile_data( $additional_user_profile_data, $user, $reserved_names ) {
+		$pod = pods( 'user', $user->ID );
+
+		if ( ! $pod->valid() ) {
+			return $additional_user_profile_data;
+		}
+
+		foreach ( $pod->fields as $name => $field ) {
+			$additional_user_profile_data[] = array(
+				'name'  => apply_filters( 'pods_form_ui_label_text', $field['label'], $name, '', $field ),
+				'value' => $pod->display( $name ),
+			);
+		}
+
+		return $additional_user_profile_data;
+	}
+
+	/**
 	 * Add Pods conditional functions to Query Monitor.
 	 *
 	 * @param  array $conditionals
@@ -1855,9 +2112,11 @@ class PodsInit {
 	public function filter_query_monitor_conditionals( $conditionals ) {
 		$conditionals[] = 'pods_developer';
 		$conditionals[] = 'pods_tableless';
+		$conditionals[] = 'pods_light';
 		$conditionals[] = 'pods_strict';
 		$conditionals[] = 'pods_allow_deprecated';
 		$conditionals[] = 'pods_api_cache';
+		$conditionals[] = 'pods_shortcode_allow_evaluate_tags';
 		return $conditionals;
 	}
 }

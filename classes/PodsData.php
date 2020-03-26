@@ -287,7 +287,7 @@ class PodsData {
 
 			if ( false === $this->pod_data ) {
 				if ( true === $strict ) {
-					return pods_error( 'Pod not found', $this );
+					return pods_error( __( 'Pod not found', 'pods' ), $this );
 				} else {
 					return $this;
 				}
@@ -1023,7 +1023,7 @@ class PodsData {
 		}
 
 		if ( ! empty( $params->orderby ) ) {
-			if ( 'post_type' === $pod['type'] && 'meta' === $pod['storage'] && is_array( $params->orderby ) ) {
+			if ( ! empty( $pod ) && 'post_type' === $pod['type'] && 'meta' === $pod['storage'] && is_array( $params->orderby ) ) {
 
 				foreach ( $params->orderby as $i => $orderby ) {
 					if ( strpos( $orderby, '.meta_value_num' ) ) {
@@ -1999,8 +1999,12 @@ class PodsData {
 			$id   = pods_absint( $row );
 
 			if ( ! is_numeric( $row ) || 0 === strpos( $row, '0' ) || $row != preg_replace( '/[^0-9]/', '', $row ) ) {
-				$mode = 'slug';
-				$id   = $row;
+				if ( $this->id && is_numeric( $this->id ) ) {
+					$id = $this->id;
+				} else {
+					$mode = 'slug';
+					$id   = $row;
+				}
 			}
 
 			$row = false;
@@ -2285,8 +2289,8 @@ class PodsData {
 		 */
 		global $wpdb;
 
-		if ( $wpdb->show_errors ) {
-			self::$display_errors = true;
+		if ( isset( $wpdb->show_errors ) ) {
+			self::$display_errors = (bool) $wpdb->show_errors;
 		}
 
 		$display_errors = self::$display_errors;
@@ -2328,7 +2332,7 @@ class PodsData {
 					$params->sql = self::prepare( $sql[0], array( $sql[1], $sql[2], $sql[3] ) );
 				}
 			} else {
-				$params = array_merge( $params, $sql );
+				$params = (object) array_merge( get_object_vars( $params ), $sql );
 			}
 
 			if ( 1 === (int) pods_v( 'pods_debug_sql_all', 'get', 0 ) && pods_is_admin( array( 'pods' ) ) ) {

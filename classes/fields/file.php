@@ -182,7 +182,7 @@ class PodsField_File extends PodsField {
 			/* WP GALLERY OUTPUT */
 			static::$type . '_wp_gallery_output'      => array(
 				'label'      => __( 'Output as a WP Gallery', 'pods' ),
-				'help'       => sprintf( __( '<a href="%s" target="_blank">Click here for more info</a>', 'pods' ), 'https://codex.wordpress.org/The_WordPress_Gallery' ),
+				'help'       => sprintf( __( '<a href="%s" target="_blank">Click here for more info</a>', 'pods' ), 'https://wordpress.org/support/article/inserting-images-into-posts-and-pages/' ),
 				'depends-on' => array( static::$type . '_type' => 'images' ),
 				'dependency' => true,
 				'type'       => 'boolean',
@@ -711,6 +711,8 @@ class PodsField_File extends PodsField {
 			$data[ $image_size ] = ucwords( str_replace( '-', ' ', $image_size ) );
 		}
 
+		$data['full'] = __( 'Full Size' ); // Translated by WordPress core.
+
 		return apply_filters( 'pods_form_ui_field_pick_data_image_sizes', $data, $name, $value, $options, $pod, $id );
 
 	}
@@ -899,11 +901,11 @@ class PodsField_File extends PodsField {
 		);
 
 		if ( ! isset( $params->method ) || ! in_array( $params->method, $methods, true ) || ! isset( $params->pod ) || ! isset( $params->field ) || ! isset( $params->uri ) || empty( $params->uri ) ) {
-			pods_error( 'Invalid AJAX request', PodsInit::$admin );
+			pods_error( __( 'Invalid AJAX request', 'pods' ), PodsInit::$admin );
 		} elseif ( ! empty( $params->pod ) && empty( $params->field ) ) {
-			pods_error( 'Invalid AJAX request', PodsInit::$admin );
+			pods_error( __( 'Invalid AJAX request', 'pods' ), PodsInit::$admin );
 		} elseif ( empty( $params->pod ) && ! current_user_can( 'upload_files' ) ) {
-			pods_error( 'Invalid AJAX request', PodsInit::$admin );
+			pods_error( __( 'Invalid AJAX request', 'pods' ), PodsInit::$admin );
 		}
 
 		// Flash often fails to send cookies with the POST or upload, so we need to pass it in GET or POST instead
